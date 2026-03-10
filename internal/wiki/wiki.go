@@ -125,7 +125,7 @@ func markupSectorMap(worlds []*generator.World, starMap []*generator.Star) strin
 		sort.Slice(wl, func(i, j int) bool { return wl[i].SysPos < wl[j].SysPos })
 	}
 
-	txt := "|[img[StarMap]]<<imageMap StarMapLinks>>|!Hex|!World or Station|\n"
+	txt := "|[img[StarMap]]&lt;&lt;imageMap StarMapLinks&gt;&gt;|!Hex|!World or Station|\n"
 
 	sorted := make([]*generator.Star, len(starMap))
 	copy(sorted, starMap)
