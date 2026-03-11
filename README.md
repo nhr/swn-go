@@ -1,5 +1,5 @@
 # SWN Sector Generator (Go Edition)
-A pure Go rewrite of the original [SWN Sector Generator](https://github.com/nhr/swn), built for use with the [Stars Without Number](http://www.sinenomine-pub.com/?page_id=395) role-playing game by [Sine Nomine Publishing](http://www.sinenomine-pub.com/).
+A pure Go rewrite of the original [SWN Sector Generator](https://github.com/nhr/swn), built for use with the [Stars Without Number](https://sine-nomine-publishing.myshopify.com/collections/stars-without-number) role-playing game by [Sine Nomine Publishing](https://sine-nomine-publishing.myshopify.com/).
 
 The rules for generating sectors are entirely based on the Stars Without Number role-playing game. The original generator was created out of love for the game and appreciation for the insane level of detail that the author put into his tables for rolling up a random galactic sector. This Go edition is a complete rewrite of the original Perl/CGI application as a single, self-contained binary.
 
