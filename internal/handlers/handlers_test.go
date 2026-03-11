@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"swn-go/internal/generator"
 )
 
 func testHandlers(t *testing.T) *Handlers {
@@ -54,12 +56,23 @@ func testHandlers(t *testing.T) *Handlers {
 	}
 }
 
+// newMux registers routes the same way main.go does, so PathValue works.
+func newMux(h *Handlers) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/seed", h.SeedHandler)
+	mux.HandleFunc("GET /api/sector/{token}", h.SectorHandler)
+	mux.HandleFunc("GET /api/sector/{token}/map", h.MapHandler)
+	mux.HandleFunc("POST /api/sector/{token}/export", h.ExportHandler)
+	return mux
+}
+
 func TestSeedHandler(t *testing.T) {
 	h := testHandlers(t)
-	req := httptest.NewRequest("GET", "/CGI/seed.cgi", nil)
+	mux := newMux(h)
+	req := httptest.NewRequest("GET", "/api/seed", nil)
 	w := httptest.NewRecorder()
 
-	h.SeedHandler(w, req)
+	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("SeedHandler returned status %d", w.Code)
@@ -70,95 +83,72 @@ func TestSeedHandler(t *testing.T) {
 		t.Errorf("Content-Type = %q; want application/json", ct)
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]string
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Invalid JSON response: %v", err)
 	}
 
-	entries, ok := resp["entries"].([]interface{})
-	if !ok || len(entries) != 1 {
-		t.Errorf("Expected entries array with 1 element; got %v", resp["entries"])
+	if resp["token"] == "" {
+		t.Error("Expected non-empty token")
 	}
 }
 
-func TestSectorGenHandler_Display(t *testing.T) {
+func TestSectorHandler(t *testing.T) {
 	h := testHandlers(t)
-	form := url.Values{
-		"action": {"display"},
-		"token":  {"ABC"},
-	}
-	req := httptest.NewRequest("POST", "/CGI/sectorgen.cgi", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mux := newMux(h)
+	req := httptest.NewRequest("GET", "/api/sector/ABC", nil)
 	w := httptest.NewRecorder()
 
-	h.SectorGenHandler(w, req)
+	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("SectorGenHandler display returned status %d", w.Code)
+		t.Fatalf("SectorHandler returned status %d", w.Code)
 	}
 
-	var resp map[string]interface{}
+	var resp generator.Sector
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Invalid JSON: %v", err)
 	}
 
-	for _, key := range []string{"name", "token", "map", "stars", "worlds", "npcs", "corps", "rels", "pols", "aliens"} {
-		if _, ok := resp[key]; !ok {
-			t.Errorf("Response missing key %q", key)
-		}
+	if resp.Name == "" {
+		t.Error("Expected non-empty sector name")
+	}
+	if resp.Token != "ABC" {
+		t.Errorf("Token = %q; want ABC", resp.Token)
+	}
+	if len(resp.Stars) == 0 {
+		t.Error("Expected non-empty stars")
+	}
+	if len(resp.Worlds) == 0 {
+		t.Error("Expected non-empty worlds")
+	}
+	if len(resp.NPCs) == 0 {
+		t.Error("Expected non-empty NPCs")
+	}
+	if len(resp.Corps) == 0 {
+		t.Error("Expected non-empty corps")
+	}
+	if len(resp.Rels) == 0 {
+		t.Error("Expected non-empty religions")
+	}
+	if len(resp.Pols) == 0 {
+		t.Error("Expected non-empty political parties")
+	}
+	if len(resp.Aliens) == 0 {
+		t.Error("Expected non-empty aliens")
 	}
 }
 
-func TestSectorGenHandler_Create(t *testing.T) {
+func TestMapHandler(t *testing.T) {
 	h := testHandlers(t)
-	form := url.Values{
-		"action": {"create"},
-		"token":  {"ABC"},
-	}
-	req := httptest.NewRequest("POST", "/CGI/sectorgen.cgi", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	mux := newMux(h)
+	req := httptest.NewRequest("GET", "/api/sector/ABC/map", nil)
 	w := httptest.NewRecorder()
 
-	h.SectorGenHandler(w, req)
+	mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("SectorGenHandler create returned status %d", w.Code)
-	}
-
-	ct := w.Header().Get("Content-Type")
-	if ct != "application/zip" {
-		t.Errorf("Content-Type = %q; want application/zip", ct)
-	}
-
-	disp := w.Header().Get("Content-Disposition")
-	if !strings.Contains(disp, "SWN_Generator_ABC.zip") {
-		t.Errorf("Content-Disposition = %q; want filename containing SWN_Generator_ABC.zip", disp)
-	}
-}
-
-func TestSectorGenHandler_MissingToken(t *testing.T) {
-	h := testHandlers(t)
-	form := url.Values{"action": {"display"}}
-	req := httptest.NewRequest("POST", "/CGI/sectorgen.cgi", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-
-	h.SectorGenHandler(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected 400 for missing token; got %d", w.Code)
-	}
-}
-
-func TestIEMapHandler(t *testing.T) {
-	h := testHandlers(t)
-	req := httptest.NewRequest("GET", "/CGI/iemap.cgi?token=ABC", nil)
-	w := httptest.NewRecorder()
-
-	h.IEMapHandler(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("IEMapHandler returned status %d", w.Code)
+		t.Fatalf("MapHandler returned status %d", w.Code)
 	}
 
 	ct := w.Header().Get("Content-Type")
@@ -167,18 +157,50 @@ func TestIEMapHandler(t *testing.T) {
 	}
 
 	if w.Body.Len() == 0 {
-		t.Error("IEMapHandler returned empty body")
+		t.Error("MapHandler returned empty body")
 	}
 }
 
-func TestIEMapHandler_MissingToken(t *testing.T) {
+func TestExportHandler(t *testing.T) {
 	h := testHandlers(t)
-	req := httptest.NewRequest("GET", "/CGI/iemap.cgi", nil)
+	mux := newMux(h)
+	req := httptest.NewRequest("POST", "/api/sector/ABC/export", nil)
 	w := httptest.NewRecorder()
 
-	h.IEMapHandler(w, req)
+	mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected 400 for missing token; got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ExportHandler returned status %d", w.Code)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/zip" {
+		t.Errorf("Content-Type = %q; want application/zip", ct)
+	}
+
+	disp := w.Header().Get("Content-Disposition")
+	if !strings.Contains(disp, "SWN_Sector_ABC.zip") {
+		t.Errorf("Content-Disposition = %q; want filename containing SWN_Sector_ABC.zip", disp)
+	}
+}
+
+func TestExportHandler_EmptyBody(t *testing.T) {
+	h := testHandlers(t)
+	mux := newMux(h)
+
+	// Export with an empty JSON body (no custom stars)
+	req := httptest.NewRequest("POST", "/api/sector/ABC/export", bytes.NewBufferString("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ExportHandler with empty body returned status %d", w.Code)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/zip" {
+		t.Errorf("Content-Type = %q; want application/zip", ct)
 	}
 }

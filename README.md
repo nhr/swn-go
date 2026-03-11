@@ -17,11 +17,12 @@ The `static/index.html` file contains the entire user interface and most of the 
 **Save Sector button** - Collects the current state of the sector as shown in the UI and passes it back to the server. The server generates two versions of a [TiddlyWiki](http://tiddlywiki.com/) file, compresses them into a .zip, and hands them back to the browser for download.
 
 ### The Back End
-The Go back end replaces the original CGI scripts with HTTP handlers served by Go's standard `net/http` package. The URL structure is preserved for compatibility:
+The Go back end serves a REST API using Go's standard `net/http` package:
 
-- `/CGI/seed.cgi` - Returns a random seed token
-- `/CGI/sectorgen.cgi` - Main processor that generates sectors and creates TiddlyWiki exports
-- `/CGI/iemap.cgi` - Renders map images for legacy IE support
+- `GET /api/seed` - Returns a random seed token
+- `GET /api/sector/{token}` - Returns full sector data as structured JSON
+- `GET /api/sector/{token}/map` - Renders and returns the sector map as a PNG image
+- `POST /api/sector/{token}/export` - Generates a TiddlyWiki ZIP export (accepts optional `{"stars": [...]}` body for custom star positions)
 
 ### Internal Packages
 The application is organized into several internal packages:
@@ -49,6 +50,18 @@ Clone the repository and build:
     go build -o swn-go .
 
 This produces a single self-contained binary with all assets embedded.
+
+### Building a Container
+
+A `Containerfile` is included for building a Linux container image. You can build it with Podman or Docker:
+
+    podman build -t swn-go .
+
+Then run the container:
+
+    podman run -p 8080:8080 swn-go
+
+Replace `podman` with `docker` if you prefer Docker. The container uses a multi-stage build: the first stage compiles the Go binary, and the second stage copies it into a minimal Fedora image.
 
 ### Running
 

@@ -23,17 +23,11 @@ jQuery.fn.centerRight = function () {
     return this;
 }
 
-var IEMODE;
 var RSEED;
 var SNAME;
 var STARMAP;
 var STARS;
-var WORLDS;
-var NPCS;
-var CORPS;
-var RELS;
-var POLS;
-var ALIENS;
+var SECTOR;
 var CLICKMAP;
 var MAPCTRS = [];
 var CLICKED = [];
@@ -51,12 +45,11 @@ function getRandSeed(myAuto) {
 
     $.ajax({
         type: 'GET',
-        url: '/CGI/seed.cgi',
+        url: '/api/seed',
         dataType: 'json',
         timeout:  30000,
-        data: { action: "request" },
         success: function(data){
-	    document.generator.seedId.value = data.entries[0];
+	    document.generator.seedId.value = data.token;
             $("#genSec").attr('disabled', false);
         },
         error: function(){
@@ -85,24 +78,14 @@ function getSector() {
     $("#wait").dialog('open');
 
     $.ajax({
-        type:     'POST',
-        url:      '/CGI/sectorgen.cgi',
+        type:     'GET',
+        url:      '/api/sector/' + RSEED,
         dataType: 'json',
         timeout:  30000,
-	data:     { action: 'display',
-	            token:  RSEED,
-                    isie:   IEMODE,
-                  },
         success:  function(data){
-	    SNAME   = data.name[0];
-            STARMAP = data.map;
+	    SNAME   = data.name;
             STARS   = data.stars;
-	    WORLDS  = data.worlds;
-            NPCS    = data.npcs;
-	    CORPS   = data.corps;
-	    RELS    = data.rels;
-	    POLS    = data.pols;
-	    ALIENS  = data.aliens;
+	    SECTOR  = data;
         },
         error:    function(){
             alert("Could not retrieve sector data from the server.");
@@ -151,28 +134,70 @@ function toggleAbout() {
     }
 }
 
-function makeWorldsHTML(myIdx, myOldHTML) {
-    return makeTable(WORLDS);
+function makeWorldsHTML() {
+    var rows = [["Name", "Atmo.", "Temp.", "Biosphere", "Population", "TL", "Tags"]];
+    for (var i = 0; i < SECTOR.worlds.length; i++) {
+        var w = SECTOR.worlds[i];
+        rows.push([w.name, w.atmosphere.short, w.temperature.short,
+                   w.biosphere.short, w.population.short, w.tech_level.short,
+                   w.tags[0].short + ", " + w.tags[1].short]);
+    }
+    return makeTable(rows);
 }
 
-function makeNPCsHTML(myIdx, myOldHTML) {
-    return make2ColHTML(NPCS);
+function makeNPCsHTML() {
+    var rows = [["Name", "M/F", "Age", "Height"]];
+    for (var i = 0; i < SECTOR.npcs.length; i++) {
+        var n = SECTOR.npcs[i];
+        rows.push([n.name, n.gender.charAt(0), n.age, n.height]);
+    }
+    return make2ColHTML(rows);
 }
 
-function makeCorpsHTML(myIdx, myOldHTML) {
-    return make2ColHTML(CORPS);
+function makeCorpsHTML() {
+    var rows = [["Company", "Business"]];
+    for (var i = 0; i < SECTOR.corps.length; i++) {
+        var c = SECTOR.corps[i];
+        rows.push([c.name, c.business]);
+    }
+    return make2ColHTML(rows);
 }
 
-function makeRelsHTML(myIdx, myOldHTML) {
-    return make2ColHTML(RELS);
+function makeRelsHTML() {
+    var rows = [["Name", "Leadership"]];
+    for (var i = 0; i < SECTOR.rels.length; i++) {
+        var r = SECTOR.rels[i];
+        var l = r.leadership.split('.')[0];
+        rows.push([r.name, l]);
+    }
+    return make2ColHTML(rows);
 }
 
-function makePolsHTML(myIdx, myOldHTML) {
-    return makeTable(POLS);
+function makePolsHTML() {
+    var rows = [["Organization", "Leadership", "Policy", "Outsiders", "Issues"]];
+    for (var i = 0; i < SECTOR.pols.length; i++) {
+        var p = SECTOR.pols[i];
+        var le = p.leadership.split(':')[0];
+        var pl = p.policy.split(':')[0];
+        var re = p.relationship.split(':')[0];
+        var issues = p.issues[0].tag + ", " + p.issues[1].tag;
+        rows.push([p.name, le, pl, re, issues]);
+    }
+    return makeTable(rows);
 }
 
-function makeAliensHTML(myIdx, myOldHTML) {
-    return makeTable(ALIENS);
+function makeAliensHTML() {
+    var rows = [["Name", "Body Type", "Lenses", "Structure"]];
+    for (var i = 0; i < SECTOR.aliens.length; i++) {
+        var a = SECTOR.aliens[i];
+        var btxt = a.body[0][0];
+        if (a.body.length > 1) { btxt = a.body[0][0] + ", " + a.body[1][0]; }
+        var ltxt = a.lens[0][0] + ", " + a.lens[1][0];
+        var stxt = a.social[0][0];
+        if (a.social.length > 1) { stxt = "Multiple"; }
+        rows.push([a.name, btxt, ltxt, stxt]);
+    }
+    return makeTable(rows);
 }
 
 // Splits a list into a two column table.
@@ -376,18 +401,26 @@ function flipStar(myCol, myRow) {
 
 /* On startup, grab a random seed. */
 $(document).ready(function(){
-    if ($.browser.msie) {
-        IEMODE = 1;
-    }
-    else {
-        IEMODE = 0;
-    }
     $("#wait").dialog({ autoOpen: false, modal: true, position: 'center', resizable: false, height: 60, width: 100 });
     $("#svSec").click(function(e) {
-        e.preventDefault();  //stop the browser from following
-        var STARJSON = JSON.stringify(STARS);
-        var ZIPURL = '/CGI/sectorgen.cgi?action=create&token=' + RSEED + '&isie=' + IEMODE + '&stars=' + STARJSON;
-        window.location.href = ZIPURL;
+        e.preventDefault();
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/sector/' + RSEED + '/export', true);
+        xhr.responseType = 'blob';
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var blob = xhr.response;
+                var link = document.createElement('a');
+                link.href = window.URL.createObjectURL(blob);
+                link.download = 'SWN_Sector_' + RSEED + '.zip';
+                link.click();
+                window.URL.revokeObjectURL(link.href);
+            } else {
+                alert("Could not download sector data from the server.");
+            }
+        };
+        xhr.send(JSON.stringify({ stars: STARS }));
     });
     getRandSeed(1);
     makeClickMap();
@@ -414,7 +447,6 @@ $(document).ready(function(){
  <li>A README file</li>
  <li>A "GM" version of the sector in <a href="http://www.tiddlywiki.com/">TiddlyWiki</a> format</li>
  <li>A "PC" version of the sector in <a href="http://www.tiddlywiki.com/">TiddlyWiki</a> format</li>
- <li>(Internet Explorer only) An image file of the star map</li>
 </ul>
 All of the randomly generated things that you've previewed will be included in the wiki files. Each article includes fully detailed writeups based on the freely distributed version of the Stars Without Number roleplaying game.<br />&nbsp;</p>
 <p class="about"><span style="font-weight: bold;">Questions?</span><br /><a href="mailto:swn_generator@emichron.com">Drop me a line.</a> No promises on a schedule or any specific revisions or improvements, but if you've got an idea for making this utility even better, I'd love to hear it. Thanks, and enjoy!</p><p style="text-align: right;">--<a href="https://shipyards.io/">N. Harrison Ripps</a>&nbsp;</p>

@@ -83,10 +83,11 @@ func main() {
 	// Set up routes
 	mux := http.NewServeMux()
 
-	// CGI routes (matching the original Perl app's URL structure)
-	mux.HandleFunc("/CGI/seed.cgi", h.SeedHandler)
-	mux.HandleFunc("/CGI/sectorgen.cgi", h.SectorGenHandler)
-	mux.HandleFunc("/CGI/iemap.cgi", h.IEMapHandler)
+	// API routes
+	mux.HandleFunc("GET /api/seed", h.SeedHandler)
+	mux.HandleFunc("GET /api/sector/{token}", h.SectorHandler)
+	mux.HandleFunc("GET /api/sector/{token}/map", h.MapHandler)
+	mux.HandleFunc("POST /api/sector/{token}/export", h.ExportHandler)
 
 	// Static file serving from embedded FS
 	staticSub, err := fs.Sub(staticFS, "static")
