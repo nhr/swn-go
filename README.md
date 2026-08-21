@@ -63,6 +63,12 @@ Then run the container:
 
 Replace `podman` with `docker` if you prefer Docker. The container uses a multi-stage build: the first stage compiles the Go binary using a [Hummingbird](https://images.redhat.com) Go builder, and the second stage copies it into a minimal, distroless static base image with zero known CVEs.
 
+### Automated Cloud Deployment
+
+A `cloudbuild.yaml` template is included for deploying to Google Cloud Run with daily rebuilds. A Cloud Scheduler job triggers Cloud Build once per day. The pipeline checks the Hummingbird base image digests against the last build and only rebuilds if the base images have been updated, keeping your deployed container on the latest CVE-free base without unnecessary rebuilds.
+
+See the setup instructions in `cloudbuild.yaml` for the required GCP resources (GCS bucket, Artifact Registry repo, Cloud Build trigger, Cloud Scheduler job). The three substitution variables (`_DIGEST_BUCKET`, `_REGION`, `_SERVICE`) are passed in when creating the Cloud Build trigger.
+
 ### Running
 
 Start the server (defaults to port 8080):

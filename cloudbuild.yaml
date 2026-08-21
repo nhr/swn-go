@@ -1,0 +1,107 @@
+# Daily rebuild of swn-go when Hummingbird base images are updated.
+#
+# Trigger with Cloud Scheduler (cron: 0 6 * * *) pointed at a Cloud Build
+# trigger configured to run this file.
+#
+# Setup:
+#   1. Create a GCS bucket for digest storage:
+#      gcloud storage buckets create gs://PROJECT_ID-swn-digests --location=REGION
+#
+#   2. Create an Artifact Registry Docker repo:
+#      gcloud artifacts repositories create swn-go \
+#        --repository-format=docker --location=REGION
+#
+#   3. Create the Cloud Build trigger:
+#      gcloud builds triggers create manual \
+#        --name=swn-go-daily \
+#        --repo=REPO_URL --branch=main \
+#        --build-config=cloudbuild.yaml \
+#        --substitutions=_DIGEST_BUCKET=PROJECT_ID-swn-digests,_REGION=REGION,_SERVICE=swn-go
+#
+#   4. Create the Cloud Scheduler job:
+#      gcloud scheduler jobs create http swn-go-daily \
+#        --schedule="0 6 * * *" --time-zone=YOUR_TIMEZONE \
+#        --uri=https://cloudbuild.googleapis.com/v1/projects/PROJECT_ID/triggers/TRIGGER_ID:run \
+#        --oauth-service-account-email=PROJECT_NUMBER-compute@developer.gserviceaccount.com
+
+substitutions:
+  _DIGEST_BUCKET: ""
+  _REGION: ""
+  _SERVICE: ""
+
+steps:
+  # 1. Get current base image digests and compare against last build
+  - id: check-digests
+    name: "gcr.io/google.com/cloudsdktool/google-cloud-cli"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        curl -sL https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
+          | tar xz -C /usr/local/bin crane
+
+        BUILDER_NEW=$$(crane digest registry.access.redhat.com/hi/go:1.25-builder)
+        STATIC_NEW=$$(crane digest registry.access.redhat.com/hi/static:latest)
+        echo "Builder: $$BUILDER_NEW"
+        echo "Static:  $$STATIC_NEW"
+        echo "$$BUILDER_NEW" > /workspace/builder.digest
+        echo "$$STATIC_NEW" > /workspace/static.digest
+
+        BUILDER_OLD=$$(gsutil cat gs://${_DIGEST_BUCKET}/builder.digest 2>/dev/null || echo none)
+        STATIC_OLD=$$(gsutil cat gs://${_DIGEST_BUCKET}/static.digest 2>/dev/null || echo none)
+
+        if [ "$$BUILDER_NEW" = "$$BUILDER_OLD" ] && [ "$$STATIC_NEW" = "$$STATIC_OLD" ]; then
+          echo "Base images unchanged. Skipping build."
+          touch /workspace/.skip
+        else
+          echo "Base images updated:"
+          echo "  Builder: $$BUILDER_OLD -> $$BUILDER_NEW"
+          echo "  Static:  $$STATIC_OLD -> $$STATIC_NEW"
+        fi
+
+  # 2. Build the container image
+  - id: build
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        [ -f /workspace/.skip ] && echo "Skipped." && exit 0
+        docker build -f Containerfile -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/swn-go/swn-go:latest .
+
+  # 3. Push to Artifact Registry
+  - id: push
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        [ -f /workspace/.skip ] && echo "Skipped." && exit 0
+        docker push ${_REGION}-docker.pkg.dev/${PROJECT_ID}/swn-go/swn-go:latest
+
+  # 4. Deploy to Cloud Run
+  - id: deploy
+    name: "gcr.io/google.com/cloudsdktool/google-cloud-cli"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        [ -f /workspace/.skip ] && echo "Skipped." && exit 0
+        gcloud run deploy ${_SERVICE} \
+          --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/swn-go/swn-go:latest \
+          --region=${_REGION}
+
+  # 5. Store the new digests for next run's comparison
+  - id: store-digests
+    name: "gcr.io/google.com/cloudsdktool/google-cloud-cli"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        [ -f /workspace/.skip ] && echo "Skipped." && exit 0
+        gsutil cp /workspace/builder.digest gs://${_DIGEST_BUCKET}/builder.digest
+        gsutil cp /workspace/static.digest gs://${_DIGEST_BUCKET}/static.digest
+        echo "Digests updated in gs://${_DIGEST_BUCKET}/"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
