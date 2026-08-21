@@ -61,7 +61,7 @@ Then run the container:
 
     podman run -p 8080:8080 swn-go
 
-Replace `podman` with `docker` if you prefer Docker. The container uses a multi-stage build: the first stage compiles the Go binary, and the second stage copies it into a minimal Fedora image.
+Replace `podman` with `docker` if you prefer Docker. The container uses a multi-stage build: the first stage compiles the Go binary using a [Hummingbird](https://images.redhat.com) Go builder, and the second stage copies it into a minimal, distroless static base image with zero known CVEs.
 
 ### Running
 
